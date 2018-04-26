@@ -1,15 +1,17 @@
 import os
 import time
 from datetime import datetime
+import logging
 import threading
-import keyboard
 import tbapy
-# from sortedcontainers import SortedList
+from sortedcontainers import SortedList
 
 # Define variables 
+logger = logging.getLogger('FRCMatchFinderLogger')
 tba = tbapy.TBA('9YP15wdwpFPjJri1tGj6BGwWCkHxNVaM9xKmv2Z0aYikXOXOKtOKol9gD5yntLJ5')
 teams = []
-matches = []
+matches = SortedList()
+cond = threading.Condition()
 
 # Range in seconds to check current matches within
 MATCH_RANGE = 150
@@ -18,12 +20,14 @@ MATCH_RANGE = 150
 UPCOMING_RANGE = 600
 
 # file for default teams to find
-teams_file = 'teams.txt'
+TEAMS_FILE = 'teams.txt'
 
 def main():
+    global teams
+
     try:
         # read in the teams from textfile
-        with open(teams_file) as f:
+        with open(TEAMS_FILE) as f:
             lines = f.readlines()
             teams = [int(line.strip()) for line in lines]
 
@@ -41,49 +45,54 @@ def main():
     # if not teams:
     #     print("Please add team numbers to the teams.txt file!")
     #     return
-
-    matches.append(Match('1', '2018esc', 'qf', 1524285900, [5518]))
+    # matches.add(Match('1', '2018esc', 'qf', 1524285900, [5518]))
 
     # Start the match sync thread
     thread = SyncThread()
+    logger.info("Starting thread")
     thread.start()
 
     # display matches according to time
-    while True:
-        # Clear screen
-        os.system('cls' if os.name == 'nt' else 'clear')
+    # cond.acquire()
+    # while True:
+    #     # wait until update is available
+    #     logger.info("Waiting")
+    #     cond.wait()
 
-        current = [matches[0]]
-        upcoming = [matches[0]]
-        now = time.time()
+    #     # Clear screen
+    #     os.system('cls' if os.name == 'nt' else 'clear')
 
-        # TODO get appropriate matches
-        with self.lock:
-            for match in matches:
-                # check for current matches
-                if now >= match.time and now < (match.time + self.MATCH_RANGE):
-                    current.append(match)
-                    matches.remove(match)
-                # check for upcoming matches
-                elif now < match.time and match.time <= (now + self.UPCOMING_RANGE):
-                    upcoming.append(match)
+    #     current = []
+    #     upcoming = []
+    #     now = time.time()
 
-        # exit if no matches left
-        if not (current and upcoming):
-            print("Your teams do not have any upcoming matches!")
-            break
+    #     # TODO get appropriate matches
+    #     for match in matches:
+    #         # check for current matches
+    #         if now >= match.time and now < (match.time + self.MATCH_RANGE):
+    #             current.append(match)
+    #             matches.remove(match)
+    #         # check for upcoming matches
+    #         elif now < match.time and match.time <= (now + self.UPCOMING_RANGE):
+    #             upcoming.append(match)
 
-        # Print current matches to user
-        print("Current Matches:")
-        for match in current:
-            print(match)
+    #     # exit if no matches left
+    #     if not (current and upcoming):
+    #         print("Your teams do not have any upcoming matches!")
+    #         continue
 
-        # Print upcoming matches to user
-        print("\nUpcoming Matches:")
-        for match in upcoming:
-            print(match)
+    #     # Print current matches to user
+    #     print("Current Matches:")
+    #     for match in current:
+    #         print(match)
 
-    # End the sync thread
+    #     # Print upcoming matches to user
+    #     print("\nUpcoming Matches:")
+    #     for match in upcoming:
+    #         print(match)
+
+    # # clean up code
+    # cond.release()
     thread.end()
 
 class SyncThread(threading.Thread):
@@ -112,36 +121,31 @@ class SyncThread(threading.Thread):
                 team_matches = tba.team_matches(team, event, simple=True)
 
                 # check if match is yet to be played
-                for match in reversed(team_matches):
-                    if (match.predicted_time > today):
+                for match in team_matches:
+                    if (match.predicted_time >= today):
                         m = Match(match.match_number, match.event_key, match.comp_level, \
-                            match.predicted_time, set(team))
+                            match.predicted_time, set([team]))
+                        logger.info(str(m))
 
                         # check if match already exists
-                        if not contains(matches, lambda x: x == m):
-                            matches.append(m)
+                        cond.acquire()
+                        if not m in matches:
+                            matches.add(m)
                         else:
-                            m = get(matches, m)
-                            m.addTeam(team)               
+                            m = matches.index(m)
+                            m.add_team(team)
+                        logger.info(str(matches))  
+                        cond.notify()
+                        logger.info("Thread notified")
+                        cond.release()
 
         # run this thread again every hour
+        self.timer = threading.Timer(self.SYNC_INTERVAL, self.run)
         self.timer.start()
 
     def end(self):
         self.timer.cancel()
         self.join()
-
-    def contains(list, filter):
-        for x in list:
-            if filter(x):
-                return True
-        return False
-
-    def get(list, item):
-        for x in list:
-            if x == item:
-                return x
-        return item
 
 class Match:
 
@@ -152,7 +156,7 @@ class Match:
         self.time = time
         self.teams = teams
 
-    def addTeam(self, team):
+    def add_team(self, team):
         self.teams.add(team)
 
     def __str__(self):
@@ -168,4 +172,10 @@ class Match:
 
 # check if main thread
 if __name__ == '__main__':
+    # configure logging
+    log_datefmt = "%H:%M:%S"
+    log_format = "%(asctime)s:%(msecs)03d %(levelname)-8s: %(name)-20s: %(message)s"
+    logging.basicConfig(level=logging.DEBUG, datefmt=log_datefmt, format=log_format)
+
+    logger.info("Running main")
     main()
