@@ -23,13 +23,11 @@ UPCOMING_RANGE = 600
 TEAMS_FILE = 'teams.txt'
 
 def main():
-    global teams
-
     try:
         # read in the teams from textfile
         with open(TEAMS_FILE) as f:
             lines = f.readlines()
-            teams = [int(line.strip()) for line in lines]
+            teams.extend([int(line.strip()) for line in lines])
 
     # will be thrown if teams file not found
     except IOError:
@@ -93,6 +91,7 @@ def main():
 
     # # clean up code
     # cond.release()
+
     thread.end()
 
 class SyncThread(threading.Thread):
@@ -125,16 +124,14 @@ class SyncThread(threading.Thread):
                     if (match.predicted_time >= today):
                         m = Match(match.match_number, match.event_key, match.comp_level, \
                             match.predicted_time, set([team]))
-                        logger.info(str(m))
 
                         # check if match already exists
                         cond.acquire()
                         if not m in matches:
                             matches.add(m)
                         else:
-                            m = matches.index(m)
+                            m = matches[matches.index(m)]
                             m.add_team(team)
-                        logger.info(str(matches))  
                         cond.notify()
                         logger.info("Thread notified")
                         cond.release()
@@ -145,7 +142,9 @@ class SyncThread(threading.Thread):
 
     def end(self):
         self.timer.cancel()
+        self.timer.join()
         self.join()
+        logger.info("end")
 
 class Match:
 
@@ -159,6 +158,17 @@ class Match:
     def add_team(self, team):
         self.teams.add(team)
 
+    @staticmethod
+    def translate_type(type):
+        if type == "qm":
+            return 0
+        elif type == "qf":
+            return 1
+        elif type == "sf":
+            return 2
+        elif type == "f":
+            return 3
+
     def __str__(self):
         return datetime.fromtimestamp(self.time).strftime('%H:%M:%S %m-%d-%Y') + \
             f' --- {self.event} {self.type} Match {self.number} with {self.teams} playing'
@@ -169,6 +179,24 @@ class Match:
     def __eq__(self, other):
         return self.event == other.event and self.type == other.type \
             and self.number == other.number
+
+    def __lt__(self, other):
+        # if self.event == other.event:
+        #     if self.type == other.type:
+        #         return self.number < other
+        #     else:
+        #         return translate_type(self.type) < translate_type(other.type)
+        # else:
+        return self.time < other.time
+
+    def __le__(self, other):
+        return self.__eq__ or self.__lt__(other)
+
+    def __gt__(self, other):
+        return self.time > other.time
+
+    def __ge__(self, other):
+        return self.__eq__ or self.__gt__(other)
 
 # check if main thread
 if __name__ == '__main__':
