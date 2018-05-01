@@ -17,7 +17,7 @@ cond = threading.Condition()
 MATCH_RANGE = 150
 
 # Range in seconds to check upcoming matches within
-UPCOMING_RANGE = 600
+UPCOMING_RANGE = 3600
 
 # file for default teams to find
 TEAMS_FILE = 'teams.txt'
@@ -46,65 +46,61 @@ def main():
     # matches.add(Match('1', '2018esc', 'qf', 1524285900, [5518]))
 
     # Start the match sync thread
-    thread = SyncThread()
+    sync_thread = SyncThread()
     logger.info("Starting thread")
-    thread.start()
+    sync_thread.start()
 
     # display matches according to time
-    # cond.acquire()
-    # while True:
-    #     # wait until update is available
-    #     logger.info("Waiting")
-    #     cond.wait()
+    cond.acquire()
+    while True:
+        # wait until update is available
+        logger.info("Waiting")
+        cond.wait()
 
-    #     # Clear screen
-    #     os.system('cls' if os.name == 'nt' else 'clear')
+        # Clear screen
+        os.system('cls' if os.name == 'nt' else 'clear')
 
-    #     current = []
-    #     upcoming = []
-    #     now = time.time()
+        current = []
+        upcoming = []
+        now = time.time()
 
-    #     # TODO get appropriate matches
-    #     for match in matches:
-    #         # check for current matches
-    #         if now >= match.time and now < (match.time + self.MATCH_RANGE):
-    #             current.append(match)
-    #             matches.remove(match)
-    #         # check for upcoming matches
-    #         elif now < match.time and match.time <= (now + self.UPCOMING_RANGE):
-    #             upcoming.append(match)
+        # TODO get appropriate matches
+        for match in matches:
+            logger.info("match: " + str(match))
+            # check for current matches
+            if now >= match.time and now < (match.time + MATCH_RANGE):
+                current.append(match)
+                matches.remove(match)
+            # check for upcoming matches
+            elif now < match.time and match.time <= (now + UPCOMING_RANGE):
+                upcoming.append(match)
 
-    #     # exit if no matches left
-    #     if not (current and upcoming):
-    #         print("Your teams do not have any upcoming matches!")
-    #         continue
+        # exit if no matches left
+        if not (current and upcoming):
+            print("Your teams do not have any upcoming matches!")
+            continue
 
-    #     # Print current matches to user
-    #     print("Current Matches:")
-    #     for match in current:
-    #         print(match)
+        # Print current matches to user
+        print("Current Matches:")
+        for match in current:
+            print(match)
 
-    #     # Print upcoming matches to user
-    #     print("\nUpcoming Matches:")
-    #     for match in upcoming:
-    #         print(match)
+        # Print upcoming matches to user
+        print("\nUpcoming Matches:")
+        for match in upcoming:
+            print(match)
 
-    # # clean up code
-    # cond.release()
-
+    # clean up code
+    cond.release()
     thread.end()
 
-class SyncThread(threading.Thread):
+class SyncThread():
 
     # Constant to execute thread every hour
     SYNC_INTERVAL = 3600
 
     def __init__(self):
-        threading.Thread.__init__(self)
-        self.threadID = 1
-        self.name = 'SyncThread'
-        self.counter = 1
-        self.timer = threading.Timer(self.SYNC_INTERVAL, self.run)
+        self.timer = threading.Timer(0, self.run)
 
     def run(self):
         # define needed variables
@@ -133,18 +129,24 @@ class SyncThread(threading.Thread):
                             m = matches[matches.index(m)]
                             m.add_team(team)
                         cond.notify()
-                        logger.info("Thread notified")
                         cond.release()
 
         # run this thread again every hour
         self.timer = threading.Timer(self.SYNC_INTERVAL, self.run)
         self.timer.start()
 
+    def start(self):
+        self.timer.start()
+
     def end(self):
         self.timer.cancel()
         self.timer.join()
         self.join()
-        logger.info("end")
+
+class Watcher:
+
+    def __init__(self):
+        # TODO init
 
 class Match:
 
