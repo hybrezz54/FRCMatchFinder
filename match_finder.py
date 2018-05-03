@@ -9,9 +9,14 @@ from sortedcontainers import SortedList
 # Define variables 
 logger = logging.getLogger('FRCMatchFinderLogger')
 tba = tbapy.TBA('9YP15wdwpFPjJri1tGj6BGwWCkHxNVaM9xKmv2Z0aYikXOXOKtOKol9gD5yntLJ5')
+sync_cond = threading.Condition()
+watcher_lock = threading.Condition()
+
+# Needed lists
 teams = []
 matches = SortedList()
-cond = threading.Condition()
+current = []
+upcoming = []
 
 # Range in seconds to check current matches within
 MATCH_RANGE = 150
@@ -40,59 +45,44 @@ def main():
         return
 
     # exit if no teams
-    # if not teams:
-    #     print("Please add team numbers to the teams.txt file!")
-    #     return
-    # matches.add(Match('1', '2018esc', 'qf', 1524285900, [5518]))
+    if not teams:
+        print("Please add team numbers to the teams.txt file!")
+        return
+
+    # matches.add(Match('1', '2018esc', 'qf', 1525319863, [5518]))
+
+    # Start the watcher thread
+    watcher = WatcherThread()
+    logger.info("Starting watcher")
+    watcher.start()
 
     # Start the match sync thread
     sync_thread = SyncThread()
-    logger.info("Starting thread")
+    logger.info("Starting sync")
     sync_thread.start()
 
     # display matches according to time
-    cond.acquire()
+    sync_cond.acquire()
     while True:
         # wait until update is available
         logger.info("Waiting")
-        cond.wait()
+        sync_cond.wait()
 
-        # Clear screen
-        os.system('cls' if os.name == 'nt' else 'clear')
-
-        current = []
-        upcoming = []
+        # get current time
         now = time.time()
 
-        # TODO get appropriate matches
+        # check for upcoming matches
         for match in matches:
             logger.info("match: " + str(match))
-            # check for current matches
-            if now >= match.time and now < (match.time + MATCH_RANGE):
-                current.append(match)
+            if now < match.time and match.time <= (now + UPCOMING_RANGE):
+                with watcher_lock:
+                    upcoming.append(match)
                 matches.remove(match)
-            # check for upcoming matches
-            elif now < match.time and match.time <= (now + UPCOMING_RANGE):
-                upcoming.append(match)
-
-        # exit if no matches left
-        if not (current and upcoming):
-            print("Your teams do not have any upcoming matches!")
-            continue
-
-        # Print current matches to user
-        print("Current Matches:")
-        for match in current:
-            print(match)
-
-        # Print upcoming matches to user
-        print("\nUpcoming Matches:")
-        for match in upcoming:
-            print(match)
 
     # clean up code
-    cond.release()
-    thread.end()
+    sync_cond.release()
+    sync_thread.end()
+    watcher.join()
 
 class SyncThread():
 
@@ -122,14 +112,14 @@ class SyncThread():
                             match.predicted_time, set([team]))
 
                         # check if match already exists
-                        cond.acquire()
+                        sync_cond.acquire()
                         if not m in matches:
                             matches.add(m)
                         else:
                             m = matches[matches.index(m)]
                             m.add_team(team)
-                        cond.notify()
-                        cond.release()
+                        sync_cond.notify()
+                        sync_cond.release()
 
         # run this thread again every hour
         self.timer = threading.Timer(self.SYNC_INTERVAL, self.run)
@@ -143,10 +133,50 @@ class SyncThread():
         self.timer.join()
         self.join()
 
-class Watcher:
+class WatcherThread(threading.Thread):
 
     def __init__(self):
-        # TODO init
+        threading.Thread.__init__(self)
+        self.threadID = 1
+        self.name = 'WatcherThread'
+        self.counter = 1
+
+    def run(self):
+        logger.info("Running watcher")
+
+        while True:
+            # Clear screen
+            os.system('cls' if os.name == 'nt' else 'clear')
+
+            # get current time
+            now = time.time()
+
+            logger.info("Matches: " + str(current) + "\n" + str(upcoming))
+
+            # check for current matches
+            with watcher_lock:
+                for match in upcoming:
+                    if now >= match.time and now < (match.time + MATCH_RANGE):
+                        current.append(match)
+                        upcoming.remove(match)
+
+            # exit if no matches left
+            if not (current and upcoming):
+                print("Your team(s) do not have any upcoming matches!")
+            else:
+                # Print current matches to user
+                print("Current Matches:")
+                for match in current:
+                    print(match)
+
+                # Print upcoming matches to user
+                print("\nUpcoming Matches:")
+                with watcher_lock:
+                    for match in upcoming:
+                        print(match)
+
+            # sleep for half a match
+            time.sleep(MATCH_RANGE / 2)
 
 class Match:
 
